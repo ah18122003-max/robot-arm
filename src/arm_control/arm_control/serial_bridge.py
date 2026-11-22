@@ -28,7 +28,7 @@ class SerialBridge(Node):
             self.get_logger().info(f'Connected to microcontroller on {port}')
         except serial.SerialException as exc:
             self.get_logger().error(f'Could not open serial port {port}: {exc}')
-            raise
+            self.get_logger().warning('The bridge will keep running; reconnect is attempted on every command')
 
         self.subscription = self.create_subscription(
             JointTrajectory,
@@ -43,10 +43,24 @@ class SerialBridge(Node):
             return
 
         positions = msg.points[-1].positions
+        if len(msg.joint_names) != len(positions):
+            self.get_logger().warning('Trajectory joint_names and positions have different lengths')
+            return
+
         name_to_position = dict(zip(msg.joint_names, positions))
         if any(name not in name_to_position for name in JOINTS):
             self.get_logger().warning('Trajectory is missing one or more arm joints')
             return
+
+        if self.serial_port is None or not self.serial_port.is_open:
+            port = self.get_parameter('port').value
+            baud = self.get_parameter('baud').value
+            try:
+                self.serial_port = serial.Serial(port, baud, timeout=1)
+                self.get_logger().info(f'Reconnected to microcontroller on {port}')
+            except serial.SerialException as exc:
+                self.get_logger().warning(f'Microcontroller unavailable on {port}: {exc}')
+                return
 
         servo_angles = []
         for i, joint in enumerate(JOINTS):
